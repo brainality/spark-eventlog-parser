@@ -154,6 +154,11 @@ def sort_dict(dict_name: dict, order_by_item: str="node_path")-> dict:
     '''
     return OrderedDict(sorted(dict_name.items() ,key =lambda kv: path_key(kv[1].get(order_by_item,"0"))))
 
+def is_ancestor_path(ancestor: str, descendant: str) -> bool:
+    '''
+    Returns True if descendant node belongs to ancestor node
+    '''
+    return ancestor == descendant or descendant.startswith(ancestor + ".")
 
 def make_stores():
     '''
@@ -805,6 +810,7 @@ def parse_eventlog(path):
             
     #print("PARSE END", id(S), len(S["plan_nodes"]))
     build_stage_to_plan_metrics(S)
+    mark_post_scan_filters(S)
 
     logging.info("End %s", parse_eventlog.__name__)
     return S
@@ -952,6 +958,46 @@ def build_stage_to_plan_metrics(S):
 
         collected = collect_stage_metrics(st,metric_index_sorted)
         S["stage_to_plan_metrics"][stage_key].extend(collected)
+
+def mark_post_scan_filters(S):
+    '''
+    For each stage, mark the Filter node that is closest(deepest ancestor)
+    of the Scan parquet node
+    Adds: S["filter_role] = "post_scan"
+    '''
+    for stage_key, metrics in S["stage_to_plan_metrics"].items():
+
+        # stop at first hit of scan operator
+        scan = next(
+        (m for m in metrics
+        if (m.get("node_name") or "").strip()=="Scan parquet"
+        and (m.get("metric_name") or "").strip() == "number of output rows" 
+            ), None
+        )
+
+        if not scan:
+            continue
+
+        scan_path = scan.get("node_path") or ""
+
+        # Only filters that are ancestors of scan =>  on the same branch as scan
+        candidates = [
+                m for m in metrics
+                if (m.get("node_name") or "").strip() == "Filter"
+                and (m.get("metric_name") or "").strip() == "number of output rows"
+                and is_ancestor_path((m.get("node_path") or ""),scan_path)
+
+        ]
+
+        if not candidates:
+            continue
+
+        chosen = max(candidates, key = lambda m: path_key(m.get("node_path")))
+
+        # mark filter as post scan
+        chosen["filter_role"] = "post_scan"
+
+
 
 
 
