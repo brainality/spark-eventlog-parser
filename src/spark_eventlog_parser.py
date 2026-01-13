@@ -239,6 +239,7 @@ def handle_exec_start(e, S):
     root_execution_id =  e.get("rootExecutionId")
     description = e.get("description")
     stat_id = (description.split("statement ",1)[1].split(":")[0] if "statement " in description else None)
+    is_write = (True if "write.mode" in description else False)
     
     epoch_ms = e.get("time")
     epoch_s = epoch_ms/1000.0
@@ -251,7 +252,8 @@ def handle_exec_start(e, S):
         "statement_id": stat_id,
         "description": description,
         "epoch_start_time": epoch_s,
-        "start_time":formatted_time
+        "start_time":formatted_time ,
+        "has_write_op": is_write ,
     })
 
     S["executions_by_id"][execution_id]=rec
@@ -745,6 +747,19 @@ def print_slowest_files(job_ids, S, top_n = 5):
 
     print()
 
+def print_write_execution_ids(executions):
+    '''
+    Return list of execution ids that have write operation
+    '''
+    exec_ids = []
+    for exec_id, value in executions.items():
+        if value["has_write_op"]:
+            exec_ids.append(exec_id)
+        else:
+            continue
+    return exec_ids
+
+
 
 def parse_eventlog(path):
     '''
@@ -937,6 +952,7 @@ def build_stage_to_plan_metrics(S):
 
         collected = collect_stage_metrics(st,metric_index_sorted)
         S["stage_to_plan_metrics"][stage_key].extend(collected)
+
 
 
 def print_scan_parquet_metrics(metrics):
